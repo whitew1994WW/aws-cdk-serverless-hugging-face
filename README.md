@@ -1,7 +1,7 @@
 
 # CDK Sample: Deploy a Hugging Face Transformer model to Amazon Sagemaker
 
-This example creates an SageMaker real-time Endpoint using the Hugging Face DLC. You can provide your `model` and `task` for the model you want to deploy from huggingface.co/models as input `parameters`. The Stack will create an IAM Role with the required permissions to execute your endpoint, a SageMaker Model, a SageMaker Endpoint Configuration and the Endpoint itself. 
+This example creates an SageMaker Serverless Endpoint using the Hugging Face DLC. You can provide your `model` , `task` for the model you want to deploy from huggingface.co/models as input `parameters`, in addition you should provide a short name for the model you are deploying. The Stack will create an IAM Role with the required permissions to execute your endpoint, a SageMaker Model, a SageMaker Endpoint Configuration and the Endpoint itself. 
 
 ![image.png](./image.png)
 
