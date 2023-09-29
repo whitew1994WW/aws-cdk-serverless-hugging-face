@@ -9,7 +9,7 @@ This example creates an SageMaker Serverless Endpoint using the Hugging Face DLC
 
 clone the repository 
 ```bash
-git clone https://github.com/philschmid/sample-huggingface-sagemaker-cdk.git
+git clone https://github.com/whitew1994WW/aws-cdk-serverless-hugging-face.git
 ```
 
 Install the cdk required dependencies. Make your you have the [cdk](https://docs.aws.amazon.com/cdk/latest/guide/getting_started.html#getting_started_install) installed.
