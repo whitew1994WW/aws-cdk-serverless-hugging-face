@@ -26,9 +26,7 @@ cdk bootstrap
 Deploy your Hugging Face Transformer model to Amazon SageMaker
 
 ```bash
-cdk deploy \
-  --parameters model="distilbert-base-uncased-finetuned-sst-2-english" \
-  --parameters task="text-classification"
+cdk deploy --parameters model="distilbert-base-uncased-finetuned-sst-2-english" --parameters task="text-classification" --parameters modelShortName="text-classification"
 ```
 
 ## Extras

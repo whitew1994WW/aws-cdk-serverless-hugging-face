@@ -1,3 +1,2 @@
-aws_cdk.aws_sagemaker>=1.123.0
-aws_cdk.aws_iam>=1.123.0
-aws-cdk.core>=1.123.0
+aws-cdk-lib==2.87.0
+constructs>=10.0.0,<11.0.0

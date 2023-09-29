@@ -4,9 +4,8 @@
 # being updated to use `cdk`.  You may delete this import if you don't need it.
 from aws_cdk import aws_iam as iam
 from aws_cdk import aws_sagemaker as sagemaker
-from aws_cdk import core
-from aws_cdk import core as cdk
-
+from constructs import Construct
+import aws_cdk as cdk
 from huggingface_sagemaker.config import LATEST_PYTORCH_VERSION, LATEST_TRANSFORMERS_VERSION, region_dict
 
 # policies based on https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-roles.html#sagemaker-roles-createmodel-perms
@@ -36,97 +35,95 @@ iam_sagemaker_actions = [
 def get_image_uri(
     region=None,
     transformmers_version=LATEST_TRANSFORMERS_VERSION,
-    pytorch_version=LATEST_PYTORCH_VERSION,
-    use_gpu=False,
+    pytorch_version=LATEST_PYTORCH_VERSION
 ):
     repository = f"{region_dict[region]}.dkr.ecr.{region}.amazonaws.com/huggingface-pytorch-inference"
-    tag = f"{pytorch_version}-transformers{transformmers_version}-{'gpu-py36-cu111' if use_gpu == True else 'cpu-py36'}-ubuntu18.04"
+    tag = f"{pytorch_version}-transformers{transformmers_version}-cpu-py36-ubuntu18.04"
     return f"{repository}:{tag}"
 
 
-def is_gpu_instance(instance_type):
-    return True if instance_type.split(".")[1][0].lower() in ["p", "g"] else False
-
-
 class HuggingfaceSagemaker(cdk.Stack):
-    def __init__(self, scope: cdk.Construct, construct_id: str, **kwargs) -> None:
+    def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         # Hugging Face Model
-        huggingface_model = core.CfnParameter(
+        huggingface_model = cdk.CfnParameter(
             self,
             "model",
             type="String",
             default=None,
         ).value_as_string
         # Model Task
-        huggingface_task = core.CfnParameter(
+        huggingface_task = cdk.CfnParameter(
             self,
             "task",
             type="String",
             default=None,
         ).value_as_string
-        # Execution role for SageMaker, will be created if not provided
-        instance_type = core.CfnParameter(
+
+        short_huggingface_model = cdk.CfnParameter(
             self,
-            "instance_type",
+            "modelShortName",
             type="String",
-            default="ml.m5.xlarge",
+            default=None,
         ).value_as_string
 
-        # Execution role for SageMaker, will be created if not provided
-        # we cannot use `CfnParameter` since the value is a `TOKEN` when synthizing the stack
-        execution_role = kwargs.pop("role", None)
-
         # creates the image_uir based on the instance type and region
-        use_gpu = is_gpu_instance(instance_type)
-        image_uri = get_image_uri(region=self.region, use_gpu=use_gpu)
+        image_uri = get_image_uri(region=self.region)
 
         # creates new iam role for sagemaker using `iam_sagemaker_actions` as permissions or uses provided arn
-        if execution_role is None:
-            execution_role = iam.Role(
-                self, "hf_sagemaker_execution_role", assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com")
-            )
-            execution_role.add_to_policy(iam.PolicyStatement(resources=["*"], actions=iam_sagemaker_actions))
-            execution_role_arn = execution_role.role_arn
-        else:
-            execution_role_arn = execution_role
+        execution_role = iam.Role(
+            self, "hf_sagemaker_execution_role", assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com")
+        )
+        execution_role.add_to_policy(iam.PolicyStatement(resources=["*"], actions=iam_sagemaker_actions))
+        
+        # Grant the GetBatchImage permission to the execution role
+        execution_role_arn = execution_role.role_arn
 
         # defines and creates container configuration for deployment
         container_environment = {"HF_MODEL_ID": huggingface_model, "HF_TASK": huggingface_task}
         container = sagemaker.CfnModel.ContainerDefinitionProperty(environment=container_environment, image=image_uri)
 
         # creates SageMaker Model Instance
+        model_name = f'model-{short_huggingface_model}'
         model = sagemaker.CfnModel(
             self,
             "hf_model",
             execution_role_arn=execution_role_arn,
             primary_container=container,
-            model_name=f'model-{huggingface_model.replace("_","-").replace("/","--")}',
+            model_name=model_name,
         )
 
+
         # Creates SageMaker Endpoint configurations
+        endpoint_configuration_name = f'config-{short_huggingface_model}'
         endpoint_configuration = sagemaker.CfnEndpointConfig(
             self,
-            "hf_endpoint_config",
-            endpoint_config_name=f'config-{huggingface_model.replace("_","-").replace("/","--")}',
+            "hf_serverless_endpoint_config",
+            endpoint_config_name=endpoint_configuration_name,
             production_variants=[
+                
                 sagemaker.CfnEndpointConfig.ProductionVariantProperty(
-                    initial_instance_count=1,
-                    instance_type=instance_type,
                     model_name=model.model_name,
                     initial_variant_weight=1.0,
                     variant_name=model.model_name,
+                    serverless_config=sagemaker.CfnEndpointConfig.ServerlessConfigProperty(
+                        max_concurrency=3,
+                        memory_size_in_mb=3072
+                    ),
                 )
             ],
         )
-        # Creates Real-Time Endpoint
+        # Creates Serverless Endpoint
+        endpoint_name = f'serverless-endpoint-{short_huggingface_model}'
         endpoint = sagemaker.CfnEndpoint(
             self,
-            "hf_endpoint",
-            endpoint_name=f'endpoint-{huggingface_model.replace("_","-").replace("/","--")}',
+            "hf_serverless_endpoint",
+            endpoint_name=endpoint_name,
             endpoint_config_name=endpoint_configuration.endpoint_config_name,
         )
 
         # adds depends on for different resources
         endpoint_configuration.node.add_dependency(model)
         endpoint.node.add_dependency(endpoint_configuration)
+        model.node.add_dependency(execution_role)
+
