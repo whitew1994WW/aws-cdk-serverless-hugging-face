@@ -17,6 +17,15 @@ Install the cdk required dependencies. Make your you have the [cdk](https://docs
 pip3 install -r requirements.txt
 ```
 
+Add your AWS Account ID and region to a config.ini file - e.g.
+```bash
+[AWS_ACCOUNT_INFO]
+AWS_ACCOUNT_ID = 777777777777
+AWS_REGION = eu-west-1
+```
+
+
+
 [Bootstrap](https://docs.aws.amazon.com/cdk/latest/guide/bootstrapping.html) your application in the cloud.
 
 ```bash
