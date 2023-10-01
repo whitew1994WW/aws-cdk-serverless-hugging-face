@@ -1,6 +1,6 @@
 LATEST_PYTORCH_VERSION = "1.8.1"
 LATEST_TRANSFORMERS_VERSION = "4.10.2"
-
+LAMBDA_HANDLER_PATH = "../lambda"
 region_dict = {
     "af-south-1": "626614931356",
     "ap-east-1": "871362719292",

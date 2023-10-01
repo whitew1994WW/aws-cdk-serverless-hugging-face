@@ -6,7 +6,9 @@ from aws_cdk import aws_iam as iam
 from aws_cdk import aws_sagemaker as sagemaker
 from constructs import Construct
 import aws_cdk as cdk
-from huggingface_sagemaker.config import LATEST_PYTORCH_VERSION, LATEST_TRANSFORMERS_VERSION, region_dict
+from huggingface_sagemaker.config import LATEST_PYTORCH_VERSION, LATEST_TRANSFORMERS_VERSION, region_dict, LAMBDA_HANDLER_PATH
+import pathlib
+
 
 # policies based on https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-roles.html#sagemaker-roles-createmodel-perms
 iam_sagemaker_actions = [
@@ -42,7 +44,7 @@ def get_image_uri(
     return f"{repository}:{tag}"
 
 
-class HuggingfaceSagemaker(cdk.Stack):
+class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         # Hugging Face Model
@@ -121,6 +123,29 @@ class HuggingfaceSagemaker(cdk.Stack):
             endpoint_name=endpoint_name,
             endpoint_config_name=endpoint_configuration.endpoint_config_name,
         )
+        
+        code_path = pathlib.Path(__file__).parent / LAMBDA_HANDLER_PATH
+        
+        # Create a role for the lambda function
+        lambda_role = iam.Role(
+            self, "lambda_role", assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
+        )
+        lambda_role.add_to_policy(iam.PolicyStatement(resources=["*"], actions=iam_sagemaker_actions))
+        
+        lambda_func = cdk.aws_lambda.Function(
+            self,
+            f"ApiLambda",
+            runtime=cdk.aws_lambda.Runtime.PYTHON_3_8,
+            handler="handler.lambda_handler",
+            code=cdk.aws_lambda.Code.from_asset(str(code_path)),
+            memory_size=1024,
+            environment={
+                "ENDPOINT_NAME": endpoint_name
+            },
+            role=lambda_role,
+            timeout=cdk.Duration.seconds(180),
+        )
+        
 
         # adds depends on for different resources
         endpoint_configuration.node.add_dependency(model)
