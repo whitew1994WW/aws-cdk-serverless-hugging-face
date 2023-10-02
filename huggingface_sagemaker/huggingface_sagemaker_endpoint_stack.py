@@ -48,6 +48,31 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         # Hugging Face Model
+        huggingface_model, huggingface_task, short_huggingface_model = self.handle_inputs()
+
+        # creates the image_uir based on the instance type and region
+        image_uri = get_image_uri(region=self.region)
+
+        execution_role = self.create_execution_role()
+
+        model = self.create_model(image_uri, execution_role, huggingface_model, huggingface_task, short_huggingface_model)
+
+        endpoint_configuration = self.create_endpoint_configuration(model, short_huggingface_model)
+        endpoint = self.create_endpoint(endpoint_configuration, short_huggingface_model)
+
+        lambda_role = self.create_lambda_role()
+        code_path = pathlib.Path(__file__).parent / LAMBDA_HANDLER_PATH
+        lambda_func = self.create_lambda_function(lambda_role, endpoint.endpoint_name, code_path)
+        api_gateway = self.create_api_gateway(lambda_func, short_huggingface_model)
+
+        self.record_outputs(model, endpoint_configuration, endpoint, lambda_func, execution_role, lambda_role, api_gateway)
+
+        # adds depends on for different resources
+        endpoint_configuration.node.add_dependency(model)
+        endpoint.node.add_dependency(endpoint_configuration)
+        model.node.add_dependency(execution_role)
+
+    def handle_inputs(self):
         huggingface_model = cdk.CfnParameter(
             self,
             "model",
@@ -68,20 +93,19 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
             type="String",
             default=None,
         ).value_as_string
+        
+        return huggingface_model,huggingface_task,short_huggingface_model
 
-        # creates the image_uir based on the instance type and region
-        image_uri = get_image_uri(region=self.region)
-
+    def create_execution_role(self):
         # creates new iam role for sagemaker using `iam_sagemaker_actions` as permissions or uses provided arn
         execution_role = iam.Role(
             self, "hf_sagemaker_execution_role", assumed_by=iam.ServicePrincipal("sagemaker.amazonaws.com")
         )
         execution_role.add_to_policy(iam.PolicyStatement(resources=["*"], actions=iam_sagemaker_actions))
-        
-        # Grant the GetBatchImage permission to the execution role
-        execution_role_arn = execution_role.role_arn
-
-        # defines and creates container configuration for deployment
+        return execution_role
+    
+    def create_model(self, image_uri, execution_role, huggingface_model, huggingface_task, short_huggingface_model):
+                # defines and creates container configuration for deployment
         container_environment = {"HF_MODEL_ID": huggingface_model, "HF_TASK": huggingface_task}
         container = sagemaker.CfnModel.ContainerDefinitionProperty(environment=container_environment, image=image_uri)
 
@@ -90,13 +114,14 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
         model = sagemaker.CfnModel(
             self,
             "hf_model",
-            execution_role_arn=execution_role_arn,
+            execution_role_arn=execution_role.role_arn,
             primary_container=container,
             model_name=model_name,
         )
+        return model
 
-
-        # Creates SageMaker Endpoint configurations
+    def create_endpoint_configuration(self, model, short_huggingface_model):
+                # Creates SageMaker Endpoint configurations
         endpoint_configuration_name = f'config-{short_huggingface_model}'
         endpoint_configuration = sagemaker.CfnEndpointConfig(
             self,
@@ -115,7 +140,10 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
                 )
             ],
         )
-        # Creates Serverless Endpoint
+        return endpoint_configuration
+    
+    def create_endpoint(self, endpoint_configuration, short_huggingface_model):
+        # Creates SageMaker Endpoint
         endpoint_name = f'serverless-endpoint-{short_huggingface_model}'
         endpoint = sagemaker.CfnEndpoint(
             self,
@@ -123,15 +151,18 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
             endpoint_name=endpoint_name,
             endpoint_config_name=endpoint_configuration.endpoint_config_name,
         )
-        
-        code_path = pathlib.Path(__file__).parent / LAMBDA_HANDLER_PATH
-        
+        return endpoint
+    
+    def create_lambda_role(self):
         # Create a role for the lambda function
         lambda_role = iam.Role(
             self, "lambda_role", assumed_by=iam.ServicePrincipal("lambda.amazonaws.com")
         )
         lambda_role.add_to_policy(iam.PolicyStatement(resources=["*"], actions=iam_sagemaker_actions))
-        
+        return lambda_role
+    
+    def create_lambda_function(self, lambda_role, endpoint_name, code_path):
+        # Create a lambda function
         lambda_func = cdk.aws_lambda.Function(
             self,
             f"ApiLambda",
@@ -145,10 +176,47 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
             role=lambda_role,
             timeout=cdk.Duration.seconds(180),
         )
-        
-
-        # adds depends on for different resources
-        endpoint_configuration.node.add_dependency(model)
-        endpoint.node.add_dependency(endpoint_configuration)
-        model.node.add_dependency(execution_role)
-
+        return lambda_func
+    
+    def create_api_gateway(self, lambda_func, short_huggingface_model):
+        # Create log group
+        log_group = cdk.aws_logs.LogGroup(self, f"api-gateway-logs")
+        # Create API gateway
+        api_gateway = cdk.aws_apigateway.LambdaRestApi(
+            self,
+            "ApiGatewayLambda",
+            # This might give a type error but it is
+            # Completely fine
+            handler=lambda_func,
+            rest_api_name=f"sagemaker-serverless-api",
+            deploy_options=cdk.aws_apigateway.StageOptions(
+                access_log_destination=cdk.aws_apigateway.LogGroupLogDestination(log_group),
+                access_log_format=cdk.aws_apigateway.AccessLogFormat.json_with_standard_fields(
+                    http_method=True,
+                    ip=True,
+                    caller=True,
+                    protocol=True,
+                    request_time=True,
+                    resource_path=True,
+                    response_length=True,
+                    status=True,
+                    user=True,
+                ),
+            )
+        )
+        return api_gateway
+    
+    def record_outputs(self, model, endpoint_configuration, endpoint, lambda_function, execution_role, lambda_role, api_gateway):
+        # Outputs
+        cdk.CfnOutput(self, "model_name", value=model.model_name)
+        cdk.CfnOutput(self, "endpoint_configuration_name", value=endpoint_configuration.endpoint_config_name)
+        cdk.CfnOutput(self, "endpoint_name", value=endpoint.endpoint_name)
+        cdk.CfnOutput(self, "execution_role_arn", value=execution_role.role_arn)
+        cdk.CfnOutput(self, "lambda_function_name", value=lambda_function.function_name)
+        cdk.CfnOutput(self, "lambda_function_arn", value=lambda_function.function_arn)
+        cdk.CfnOutput(self, "lambda_role_arn", value=lambda_role.role_arn)
+        cdk.CfnOutput(self, "api_gateway_url", value=api_gateway.url)
+        # Register the rest api id
+        cdk.CfnOutput(self, "api_gateway_id", value=api_gateway.rest_api_id)
+        stack = cdk.Stack.of(self)
+        stack.api_gateway_id = api_gateway.rest_api_id

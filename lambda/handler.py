@@ -12,17 +12,21 @@ def lambda_handler(event, context):
     print("Received event: " + json.dumps(event, indent=2))
     
     data = json.loads(json.dumps(event))
-    payload = data['data']
-    print(payload)
+    text_inupt = data['body'].split('=')[1]
+    model_input = {"inputs": text_inupt}
+    print(text_inupt)
     
     response = runtime.invoke_endpoint(EndpointName=ENDPOINT_NAME,
                                        ContentType='application/json',
-                                       Body=json.dumps(payload))
+                                       Body=json.dumps(model_input))
     print(response)
     result = json.loads(response['Body'].read().decode())
     print(result)
     
     return {
         'statusCode' : 200,
-        'body' : result
+        'headers': {
+            'Content-Type': 'text/plain'
+        },
+        'body' : json.dumps(result)
     } 

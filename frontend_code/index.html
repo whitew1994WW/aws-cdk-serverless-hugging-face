@@ -1,0 +1,15 @@
+
+<!-- HTMX web form for entering text and triggering an api at /api -->
+<script src="https://unpkg.com/htmx.org@1.9.2" integrity="sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h" crossorigin="anonymous"></script>
+
+<body>
+<form hx-post="/api/text_classification" hx-target="#result">
+    <input type="text" name="text" placeholder="Enter text">
+    <button type="submit">Submit</button>
+</form>
+    <div id="result"></div>
+</body>
+
+
+
+
