@@ -1,7 +1,13 @@
 
 # CDK Sample: Deploy a Hugging Face Transformer model to Amazon Sagemaker - SERVERLESS!
 
-This example creates an SageMaker Serverless Endpoint using the Hugging Face DLC. You can provide your `model` , `task` for the model you want to deploy from huggingface.co/models as input `parameters`, in addition you should provide a short name for the model you are deploying. The Stack will create an IAM Role with the required permissions to execute your endpoint, a SageMaker Model, a SageMaker Endpoint Configuration and the Endpoint itself. 
+This repo deploys a full serverless stack for testing hugging face models from a front end using the AWS cdk.
+
+It uses a static webpage that hits an endpoint using HTMX to handle the api via api gateway and lambda to a SageMaker Serverless Endpoint. To set the endpoint you want to deploy from the cmd line you can provide your `model` , `task` for the model you want to deploy from huggingface.co/models as input `parameters`, in addition you should provide a short name for the model you are deploying. The Stack will create an IAM Role with the required permissions to execute your endpoint, a SageMaker Model, a SageMaker Endpoint Configuration and the Endpoint itself. 
+
+The current limitations are that not all hugging face models are supported by SageMaker, and that there is a maximum ram size of 6gb. So the model you select will need to fit on that! In practical terms that means that most large language models are not supported.
+
+Have fun!
 
 ![image.png](./image.png)
 
@@ -37,7 +43,3 @@ Deploy your Hugging Face Transformer model to Amazon SageMaker
 ```bash
 cdk deploy --parameters model="distilbert-base-uncased-finetuned-sst-2-english" --parameters task="text-classification" --parameters modelShortName="text-classification" --all
 ```
-
-## Extras
-
-To customize it you can adjust the `config.py` or fork it. There is also an additional Parameter. `instance_type` you can define when running `cdk deploy` if you want to host on a specifc machine. 

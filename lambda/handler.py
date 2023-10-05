@@ -13,7 +13,11 @@ def lambda_handler(event, context):
     
     data = json.loads(json.dumps(event))
     text_inupt = data['body'].split('=')[1]
-    model_input = {"inputs": text_inupt}
+    model_input = {"inputs": [{
+        "label": "Input",
+        "content": text_inupt,
+        "type": "text"}]
+    }
     print(text_inupt)
     
     response = runtime.invoke_endpoint(EndpointName=ENDPOINT_NAME,

@@ -7,8 +7,9 @@ from aws_cdk import aws_sagemaker as sagemaker
 from constructs import Construct
 import aws_cdk as cdk
 from huggingface_sagemaker.config import LATEST_PYTORCH_VERSION, LATEST_TRANSFORMERS_VERSION, region_dict, LAMBDA_HANDLER_PATH
+from sagemaker.huggingface import get_huggingface_llm_image_uri
 import pathlib
-
+import json
 
 # policies based on https://docs.aws.amazon.com/sagemaker/latest/dg/sagemaker-roles.html#sagemaker-roles-createmodel-perms
 iam_sagemaker_actions = [
@@ -37,21 +38,26 @@ iam_sagemaker_actions = [
 def get_image_uri(
     region=None,
     transformmers_version=LATEST_TRANSFORMERS_VERSION,
-    pytorch_version=LATEST_PYTORCH_VERSION
+    pytorch_version=LATEST_PYTORCH_VERSION,
+    llm_bool=False,
 ):
-    repository = f"{region_dict[region]}.dkr.ecr.{region}.amazonaws.com/huggingface-pytorch-inference"
-    tag = f"{pytorch_version}-transformers{transformmers_version}-cpu-py36-ubuntu18.04"
-    return f"{repository}:{tag}"
+    if llm_bool:
+        image_uri = get_huggingface_llm_image_uri("huggingface", region=region)
+        return image_uri
+    else:
+        repository = f"{region_dict[region]}.dkr.ecr.{region}.amazonaws.com/huggingface-pytorch-inference"
+        tag = f"{pytorch_version}-transformers{transformmers_version}-cpu-py36-ubuntu18.04"
+        return f"{repository}:{tag}"
 
 
 class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
         # Hugging Face Model
-        huggingface_model, huggingface_task, short_huggingface_model = self.handle_inputs()
+        huggingface_model, huggingface_task, short_huggingface_model, llm_bool = self.handle_inputs()
 
         # creates the image_uir based on the instance type and region
-        image_uri = get_image_uri(region=self.region)
+        image_uri = get_image_uri(region=self.region, llm_bool=llm_bool)
 
         execution_role = self.create_execution_role()
 
@@ -94,7 +100,14 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
             default=None,
         ).value_as_string
         
-        return huggingface_model,huggingface_task,short_huggingface_model
+        llm_bool = bool(cdk.CfnParameter(
+            self,
+            "llm",
+            type="String",
+            default=None,
+        ).value_as_string)
+        
+        return huggingface_model,huggingface_task,short_huggingface_model, llm_bool
 
     def create_execution_role(self):
         # creates new iam role for sagemaker using `iam_sagemaker_actions` as permissions or uses provided arn
@@ -106,7 +119,7 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
     
     def create_model(self, image_uri, execution_role, huggingface_model, huggingface_task, short_huggingface_model):
                 # defines and creates container configuration for deployment
-        container_environment = {"HF_MODEL_ID": huggingface_model, "HF_TASK": huggingface_task}
+        container_environment = {"HF_MODEL_ID": huggingface_model, "HF_TASK": huggingface_task, "MMS_DEFAULT_WORKERS_PER_MODEL": "1"}
         container = sagemaker.CfnModel.ContainerDefinitionProperty(environment=container_environment, image=image_uri)
 
         # creates SageMaker Model Instance
@@ -135,7 +148,7 @@ class HuggingfaceSagemakerServerlessEndpointStack(cdk.Stack):
                     variant_name=model.model_name,
                     serverless_config=sagemaker.CfnEndpointConfig.ServerlessConfigProperty(
                         max_concurrency=3,
-                        memory_size_in_mb=3072
+                        memory_size_in_mb=3072,
                     ),
                 )
             ],
